@@ -1,425 +1,142 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-/* ===================== Types & State ===================== */
-type Form = {
-  defendantName: string;
-  plaintiffName: string;
-  courtCity: string;
-  courtCounty: string;
-  courtState: string;
-  courtType: string;
-  attyName: string;
-  attyPhone: string;
-  attyAddress: string;
-  hasBeenSued: boolean;
-  includeCounterclaim: boolean;
-  arbitrationClause: boolean;
-  reported1099C: boolean;
-  assignmentNoticeFiled: boolean;
-  attyAuthorizedByOriginalCreditor: boolean;
-  caseNumber: string;
-  filingDate: string;
-  facts: string;
-};
-
-const initialForm: Form = {
-  defendantName: "",
-  plaintiffName: "",
-  courtCity: "",
-  courtCounty: "",
-  courtState: "",
-  courtType: "",
-  attyName: "",
-  attyPhone: "",
-  attyAddress: "",
-  hasBeenSued: false,
-  includeCounterclaim: false,
-  arbitrationClause: false,
-  reported1099C: false,
-  assignmentNoticeFiled: false,
-  attyAuthorizedByOriginalCreditor: false,
-  caseNumber: "",
-  filingDate: "",
-  facts: "",
-};
-
-/* ===================== Utilities ===================== */
-function downloadText(filename: string, text: string) {
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-/* ===================== Business Logic ===================== */
-const signature = {
-  validation:
-    "CredSmash Signature: The alleged claim is disputed in its entirety pending strict proof with competent, admissible evidence establishing standing and a complete chain of title.",
-  verification:
-    "CredSmash Signature: Provide sworn verification by a person with personal knowledge, not a mere servicer declaration or hearsay custodian affidavit.",
-  answer:
-    "CredSmash Signature: Defendant denies for lack of sufficient knowledge where Plaintiff’s pleading is built on assignment, redaction, or data-dump exhibits without a witness competent to testify.",
-  admissions:
-    "CredSmash Signature: Requests track the elements of standing, ownership, and admissibility to position this case for a clean Summary Judgment if Plaintiff defaults.",
-  productions:
-    "CredSmash Signature: Produce the complete, unredacted chain of title, bill of sale with schedules referencing the Account, and authenticated records under Rules of Evidence.",
-  rogs:
-    "CredSmash Signature: Interrogatories compel Plaintiff to identify each custodian, each document relied upon, and the legal basis for suing under this caption.",
-  counter:
-    "CredSmash Signature: Plaintiff’s acts, as alleged, constitute unfair or deceptive practices actionable under state UDAP and the FDCPA where applicable.",
-};
-
-function headerBlock(f: Form) {
-  const courtLine = `${f.courtCity}, ${f.courtCounty} County, ${f.courtState} – ${f.courtType} Court`
-    .replace(/\s+/g, " ")
-    .trim();
-  return `IN THE ${courtLine.toUpperCase()}
-
-${f.plaintiffName} (Plaintiff)
-vs.
-${f.defendantName} (Defendant)
-
-Case No.: ${f.caseNumber || "[TBD]"}
-Filed: ${f.filingDate || "[TBD]"}
-`;
-}
-
-function preSuitValidation(f: Form) {
-  const L: string[] = [];
-  L.push("RE: Debt Validation Letter", "");
-  L.push(`To: ${f.attyName} | ${f.attyAddress} | ${f.attyPhone}`, "");
-  L.push(
-    "This is a request for validation under the FDCPA and any similar state law. The alleged debt is disputed."
-  );
-  L.push(
-    "1) Identify the current creditor and complete chain of title from the original creditor, including each assignment and bill of sale where the specific Account is listed or referenced."
-  );
-  L.push(
-    "2) Provide the signed agreement, full account-level transaction history, and itemization of the amount claimed (principal, interest, fees).\n"
-  );
-  L.push("Authority & Assignment:");
-  L.push(
-    "3) State whether you (or your firm) are authorized by the ORIGINAL CREDITOR to collect or litigate in their name; provide the actual written authorization if so."
-  );
-  L.push(
-    "4) Confirm whether an assignment notice was filed/served as required by law for any transfer of the alleged account."
-  );
-  L.push(
-    "5) Identify whether any attorney was hired by a debt buyer to file suit in the original creditor’s name. If so, provide the written authorization and engagement.\n"
-  );
-  if (f.reported1099C) {
-    L.push("Debt Closure Doctrine:");
-    L.push(
-      "6) Confirm whether a Form 1099-C was issued for this account and whether the creditor treated the account as discharged/closed."
-    );
-  }
-  L.push("", signature.validation);
-  return L.join("\n");
-}
-
-function preSuitVerification(f: Form) {
-  return `RE: Debt Verification Letter
-
-To: ${f.attyName} | ${f.attyAddress} | ${f.attyPhone}
-
-Provide sworn verification from a person with personal knowledge of the records, including the basis for ownership/standing.
-Attach authenticated documents sufficient for trial under the Rules of Evidence, not mere spreadsheets or summaries.
-
-${signature.verification}`;
-}
-
-function suitAnswer(f: Form) {
-  const L: string[] = [];
-  L.push(headerBlock(f), "DEFENDANT’S ANSWER", "");
-  L.push("1. Defendant denies each and every material allegation not expressly admitted herein.");
-  L.push("2. Plaintiff lacks standing absent a complete chain of title and admissible proof of ownership.");
-  if (f.arbitrationClause)
-    L.push(
-      "3. Affirmative Defense – Arbitration: The governing card agreement requires binding arbitration. Defendant invokes arbitration and waives litigation."
-    );
-  if (!f.assignmentNoticeFiled)
-    L.push(
-      "4. Affirmative Defense – Assignment/Notice: No compliant notice of assignment was provided; any transfer is unenforceable against Defendant."
-    );
-  if (!f.attyAuthorizedByOriginalCreditor)
-    L.push(
-      "5. Affirmative Defense – Authority: Any attorney purporting to sue in the original creditor’s name must show actual written authorization; none has been produced."
-    );
-  if (f.reported1099C)
-    L.push(
-      "6. Affirmative Defense – Debt Closure: The account was discharged and a 1099-C issued/treated as income; collection is barred."
-    );
-  L.push("", signature.answer);
-  return L.join("\n");
-}
-
-function suitAdmissions(f: Form) {
-  const L: string[] = [];
-  L.push(headerBlock(f), "DEFENDANT’S FIRST REQUESTS FOR ADMISSION TO PLAINTIFF", "");
-  L.push(
-    "RFA 1: Admit you do not possess a complete, unredacted chain of title linking the alleged Account from the original creditor to Plaintiff."
-  );
-  L.push(
-    "RFA 2: Admit the alleged Account is not identified by unique account number in any bill of sale relied upon by Plaintiff."
-  );
-  L.push(
-    "RFA 3: Admit you lack a witness with personal knowledge competent to authenticate the records under the Rules of Evidence."
-  );
-  L.push("RFA 4: Admit the governing card agreement contains a binding arbitration clause applicable to the claims.", "", signature.admissions);
-  return L.join("\n");
-}
-
-function suitProductions(f: Form) {
-  const L: string[] = [];
-  L.push(headerBlock(f), "DEFENDANT’S FIRST REQUEST FOR PRODUCTION TO PLAINTIFF", "");
-  L.push("1. Complete, unredacted chain of title with schedules referencing the specific Account.");
-  L.push("2. Executed cardmember agreement(s) applicable to the alleged Account and time period.");
-  L.push("3. Full, itemized account-level transaction history supporting the amount claimed.");
-  L.push("4. Communications evidencing actual written authorization for any attorney to file in the original creditor’s name.");
-  L.push("5. Any Form 1099-C and related discharge/charge-off entries.", "", signature.productions);
-  return L.join("\n");
-}
-
-function suitInterrogatories(f: Form) {
-  const L: string[] = [];
-  L.push(headerBlock(f), "DEFENDANT’S FIRST SET OF INTERROGATORIES TO PLAINTIFF", "");
-  L.push(
-    "1. Identify each person with knowledge supporting standing/ownership, including title and custodian responsibilities."
-  );
-  L.push("2. Identify each document you contend authenticates ownership/assignment of the alleged Account.");
-  L.push("3. State the legal basis for suing under this caption and whether authority was granted by the original creditor.");
-  L.push("4. Describe any arbitration clause and your position on its applicability.", "", signature.rogs);
-  return L.join("\n");
-}
-
-function suitCounterclaim(f: Form) {
-  const L: string[] = [];
-  L.push(headerBlock(f), "DEFENDANT’S COUNTERCLAIM", "");
-  L.push("Count I – Unfair or Deceptive Practices (UDAP)");
-  L.push("Count II – FDCPA Violations (where applicable)");
-  L.push("Facts: " + (f.facts || "[Insert concise factual narrative with dates]"));
-  if (!f.attyAuthorizedByOriginalCreditor)
-    L.push("Allegation: Filing in the name of the original creditor without written authorization is deceptive and unlawful.");
-  if (f.reported1099C) L.push("Allegation: Attempting to collect after discharge/1099-C constitutes an unfair practice.", "", signature.counter);
-  return L.join("\n");
-}
-
-function decideDocTypes(f: Form): string[] {
-  if (!f.hasBeenSued) return ["Debt Validation Letter", "Debt Verification Letter"];
-  const out = ["Answer", "Requests for Admission", "Requests for Production", "Interrogatories"];
-  if (f.includeCounterclaim) out.push("Counterclaim");
-  return out;
-}
-
-function renderDocs(f: Form): { title: string; body: string }[] {
-  const types = decideDocTypes(f);
-  const out: { title: string; body: string }[] = [];
-  if (!f.hasBeenSued) {
-    out.push({ title: types[0], body: preSuitValidation(f) });
-    out.push({ title: types[1], body: preSuitVerification(f) });
-    return out;
-  }
-  out.push({ title: "Answer", body: suitAnswer(f) });
-  out.push({ title: "Requests for Admission", body: suitAdmissions(f) });
-  out.push({ title: "Requests for Production", body: suitProductions(f) });
-  out.push({ title: "Interrogatories", body: suitInterrogatories(f) });
-  if (f.includeCounterclaim) out.push({ title: "Counterclaim", body: suitCounterclaim(f) });
-  return out;
-}
-
-/* ===================== Small UI Bits ===================== */
-const container: React.CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: 16 };
-const card: React.CSSProperties = { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 16 };
-const label: React.CSSProperties = { fontSize: 12, color: "#334155", marginBottom: 4 };
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 12,
-  border: "1px solid #cbd5e1",
-  outline: "none",
-};
-
-function Field(props: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }) {
-  const { label: l, value, onChange, type = "text", placeholder } = props;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <label style={label}>{l}</label>
-      <input style={inputStyle} value={value} onChange={(e) => onChange(e.target.value)} type={type} placeholder={placeholder} />
-    </div>
-  );
-}
-
-/* ===================== App ===================== */
 export default function App() {
-  const [form, setForm] = useState<Form>(initialForm);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const docs = useMemo(() => renderDocs(form), [form]);
-  const activeDoc = docs[activeIdx];
+  const [plaintiff, setPlaintiff] = useState("CAPITAL ONE, N.A.");
+  const [defendant, setDefendant] = useState("John Doe");
+  const [caseNumber, setCaseNumber] = useState("2025-CA-000123");
+  const [courtCity, setCourtCity] = useState("Fort Lauderdale");
+  const [courtCounty, setCourtCounty] = useState("Broward");
+  const [courtState, setCourtState] = useState("Florida");
+  const [courtType, setCourtType] = useState("Circuit Court");
 
-  const update = <K extends keyof Form>(k: K, v: Form[K]) => setForm((s) => ({ ...s, [k]: v }));
+  const [plaintiffAttorneyName, setPlaintiffAttorneyName] = useState("Jane Lawyer, Esq.");
+  const [plaintiffAttorneyPhone, setPlaintiffAttorneyPhone] = useState("(555) 123-4567");
+  const [plaintiffAttorneyAddress, setPlaintiffAttorneyAddress] = useState(
+    "123 Firm Rd, Suite 400, City, ST 00000"
+  );
+
+  const [lawsuitFiled, setLawsuitFiled] = useState(false);
+  const [counterclaim, setCounterclaim] = useState(false);
+  const [arbitration, setArbitration] = useState(false);
+  const [debtClosure, setDebtClosure] = useState(false);
+  const [assignmentNotice, setAssignmentNotice] = useState(false);
+  const [attorneyAuth, setAttorneyAuth] = useState(false);
+
+  const [facts, setFacts] = useState("");
+
+  const generatedText = `
+RE: Debt Validation Letter
+
+To:  |  |  
+
+This is a request for validation under the FDCPA and any similar state law. The alleged debt is disputed.
+1) Identify the current creditor and complete chain of title from the original creditor, including each assignment and bill of sale where the specific Account is listed or referenced.
+2) Provide the signed agreement, full account-level transaction history, and itemization of the amount claimed (principal, interest, fees).
+
+Authority & Assignment:
+3) State whether you (or your firm) are authorized by the ORIGINAL CREDITOR to collect or litigate in their name; provide the actual written authorization if so.
+4) Confirm whether an assignment notice was filed/served as required by law for any transfer of the alleged account.
+5) Identify whether any attorney was hired by a debt buyer to file suit in the original creditor’s name. If so, provide the written authorization and engagement.
+
+CredSmash Signature: The alleged claim is disputed in its entirety pending strict proof with competent, admissible evidence establishing standing and a complete chain of title.
+`;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", color: "#0f172a" }}>
-      {/* local CSS for responsive 2-column grid */}
-      <style>{`
-        .grid2 { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
-        @media (min-width: 900px) { .grid2 { grid-template-columns: 1fr 1fr; gap: 24px; } }
-        .pill { padding: 8px 12px; border-radius: 999px; border: 1px solid #cbd5e1; background: white; color: #0f172a; cursor: pointer; }
-        .pill.active { border-color: #0f172a; background: #0f172a; color: white; }
-        .btn { padding: 8px 12px; border-radius: 12px; border: 1px solid #cbd5e1; background: white; cursor: pointer; }
-        .btn.dark { border-color:#0f172a; background:#0f172a; color:white; }
-        .toggle { display:flex; align-items:center; gap:10px; font-size:14px; }
-        .header { position: sticky; top: 0; background: white; border-bottom: 1px solid #e2e8f0; z-index: 10; }
-      `}</style>
+    <div style={{ fontFamily: "sans-serif", padding: "20px" }}>
+      <h1 style={{ fontSize: "24px", fontWeight: "bold", marginBottom: "20px" }}>
+        CredSmash Court-Ready Doc Generator (MVP)
+      </h1>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "20px",
+          alignItems: "start",
+        }}
+      >
+        {/* Left column: Form */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <h2>Case Caption</h2>
+          <input value={plaintiff} onChange={(e) => setPlaintiff(e.target.value)} placeholder="Plaintiff" />
+          <input value={defendant} onChange={(e) => setDefendant(e.target.value)} placeholder="Defendant" />
+          <input value={caseNumber} onChange={(e) => setCaseNumber(e.target.value)} placeholder="Case Number" />
+          <input value={courtCity} onChange={(e) => setCourtCity(e.target.value)} placeholder="Court City" />
+          <input value={courtCounty} onChange={(e) => setCourtCounty(e.target.value)} placeholder="Court County" />
+          <input value={courtState} onChange={(e) => setCourtState(e.target.value)} placeholder="Court State" />
+          <input value={courtType} onChange={(e) => setCourtType(e.target.value)} placeholder="Court Type" />
 
-      {/* Header */}
-      <header className="header">
-        <div style={{ ...container, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontSize: 12, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>CredSmash</div>
-            <div style={{ fontWeight: 700 }}>Court-Ready Doc Generator (MVP)</div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn">Settings</button>
-            <button className="btn dark">Generate</button>
-          </div>
-        </div>
-      </header>
+          <h2>Plaintiff’s Attorney</h2>
+          <input value={plaintiffAttorneyName} onChange={(e) => setPlaintiffAttorneyName(e.target.value)} placeholder="Name" />
+          <input value={plaintiffAttorneyPhone} onChange={(e) => setPlaintiffAttorneyPhone(e.target.value)} placeholder="Phone" />
+          <input value={plaintiffAttorneyAddress} onChange={(e) => setPlaintiffAttorneyAddress(e.target.value)} placeholder="Address" />
 
-      {/* Main: guaranteed 2 columns on desktop */}
-      <main className="grid2" style={{ ...container }}>
-        {/* Left column */}
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Case Caption</div>
-            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
-              <Field label="Plaintiff" value={form.plaintiffName} onChange={(v) => update("plaintiffName", v)} placeholder="CAPITAL ONE, N.A." />
-              <Field label="Defendant" value={form.defendantName} onChange={(v) => update("defendantName", v)} placeholder="John Doe" />
-              <Field label="Case Number" value={form.caseNumber} onChange={(v) => update("caseNumber", v)} placeholder="2025-CA-000123" />
-              <Field label="Filing Date" value={form.filingDate} onChange={(v) => update("filingDate", v)} type="date" />
-              <Field label="Court City" value={form.courtCity} onChange={(v) => update("courtCity", v)} placeholder="Fort Lauderdale" />
-              <Field label="Court County" value={form.courtCounty} onChange={(v) => update("courtCounty", v)} placeholder="Broward" />
-              <Field label="Court State" value={form.courtState} onChange={(v) => update("courtState", v)} placeholder="Florida" />
-              <Field label="Court Type" value={form.courtType} onChange={(v) => update("courtType", v)} placeholder="Circuit Court" />
-            </div>
-          </div>
+          <h2>Status & Strategy</h2>
+          <label>
+            <input type="checkbox" checked={lawsuitFiled} onChange={(e) => setLawsuitFiled(e.target.checked)} /> Has a lawsuit already been filed?
+          </label>
+          <label>
+            <input type="checkbox" checked={counterclaim} onChange={(e) => setCounterclaim(e.target.checked)} /> Include Counterclaim (optional)
+          </label>
+          <label>
+            <input type="checkbox" checked={arbitration} onChange={(e) => setArbitration(e.target.checked)} /> Arbitration clause applies
+          </label>
+          <label>
+            <input type="checkbox" checked={debtClosure} onChange={(e) => setDebtClosure(e.target.checked)} /> 1099-C reported / debt discharged
+          </label>
+          <label>
+            <input type="checkbox" checked={assignmentNotice} onChange={(e) => setAssignmentNotice(e.target.checked)} /> Assignment notice filed/served
+          </label>
+          <label>
+            <input type="checkbox" checked={attorneyAuth} onChange={(e) => setAttorneyAuth(e.target.checked)} /> Attorney has written authorization from original creditor
+          </label>
 
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Plaintiff’s Attorney</div>
-            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
-              <Field label="Name" value={form.attyName} onChange={(v) => update("attyName", v)} placeholder="Jane Lawyer, Esq." />
-              <Field label="Phone" value={form.attyPhone} onChange={(v) => update("attyPhone", v)} placeholder="(555) 123-4567" />
-              <div style={{ gridColumn: "1 / span 2" }}>
-                <Field label="Address" value={form.attyAddress} onChange={(v) => update("attyAddress", v)} placeholder="123 Firm Rd, Suite 400, City, ST 00000" />
-              </div>
-            </div>
-          </div>
-
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Status & Strategy</div>
-            <div style={{ display: "grid", gap: 10 }}>
-              <label className="toggle"><input type="checkbox" checked={form.hasBeenSued} onChange={(e) => update("hasBeenSued", e.target.checked)} /> Has a lawsuit already been filed?</label>
-              <label className="toggle"><input type="checkbox" checked={form.includeCounterclaim} onChange={(e) => update("includeCounterclaim", e.target.checked)} /> Include Counterclaim (optional)</label>
-              <label className="toggle"><input type="checkbox" checked={form.arbitrationClause} onChange={(e) => update("arbitrationClause", e.target.checked)} /> Arbitration clause applies</label>
-              <label className="toggle"><input type="checkbox" checked={form.reported1099C} onChange={(e) => update("reported1099C", e.target.checked)} /> 1099-C reported / debt discharged</label>
-              <label className="toggle"><input type="checkbox" checked={form.assignmentNoticeFiled} onChange={(e) => update("assignmentNoticeFiled", e.target.checked)} /> Assignment notice filed/served</label>
-              <label className="toggle"><input type="checkbox" checked={form.attyAuthorizedByOriginalCreditor} onChange={(e) => update("attyAuthorizedByOriginalCreditor", e.target.checked)} /> Attorney has written authorization from original creditor</label>
-            </div>
-          </div>
-
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Facts (optional)</div>
-            <textarea
-              value={form.facts}
-              onChange={(e) => update("facts", e.target.value)}
-              placeholder="Short narrative (dates, calls, letters, key facts)…"
-              style={{ ...inputStyle, minHeight: 120 }}
-            />
-          </div>
+          <textarea
+            value={facts}
+            onChange={(e) => setFacts(e.target.value)}
+            placeholder="Facts (optional)"
+            rows={4}
+          />
         </div>
 
-        {/* Right column */}
-        <div style={{ display: "grid", gap: 16 }}>
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 12 }}>Generated Documents</div>
-
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-              {docs.map((d, i) => (
-                <button
-                  key={d.title}
-                  onClick={() => setActiveIdx(i)}
-                  className={`pill ${i === activeIdx ? "active" : ""}`}
-                >
-                  {d.title}
-                </button>
-              ))}
-            </div>
-
-            <pre
-              style={{
-                whiteSpace: "pre-wrap",
-                background: "#f1f5f9",
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid #e2e8f0",
-                minHeight: 260,
-                fontSize: 13,
-                lineHeight: 1.5,
-              }}
+        {/* Right column: Generated Output */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <h2>Generated Documents</h2>
+          <textarea
+            readOnly
+            value={generatedText}
+            style={{
+              width: "100%",
+              height: "calc(100vh - 200px)",
+              padding: "10px",
+              resize: "vertical",
+              fontFamily: "monospace",
+              fontSize: "14px",
+              lineHeight: "1.4",
+            }}
+          />
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button
+              onClick={() => navigator.clipboard.writeText(generatedText)}
+              style={{ padding: "8px 12px", backgroundColor: "#444", color: "#fff", border: "none", cursor: "pointer" }}
             >
-{activeDoc?.body}
-            </pre>
-
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <button className="btn" onClick={() => navigator.clipboard.writeText(activeDoc?.body || "")}>Copy</button>
-              <button
-                className="btn"
-                onClick={() =>
-                  downloadText(
-                    `${(activeDoc?.title || "document").replace(/\s+/g, "_")}.txt`,
-                    activeDoc?.body || ""
-                  )
-                }
-              >
-                Download .txt
-              </button>
-            </div>
-          </div>
-
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>What gets generated (logic)</div>
-            <ul style={{ paddingLeft: 18, color: "#475569", fontSize: 14, lineHeight: 1.6 }}>
-              <li><b>Not sued</b> → Validation + Verification letters.</li>
-              <li><b>Sued</b> → Answer + Admissions + Productions + Interrogatories. Optional Counterclaim if toggled.</li>
-              <li><b>Arbitration on</b> → Inserts an arbitration defense into the Answer.</li>
-              <li><b>No assignment notice</b> → Adds an affirmative defense on assignment/notice.</li>
-              <li><b>No original-creditor authorization</b> → Defense on attorney authority and deceptive filing.</li>
-              <li><b>1099-C on</b> → Adds Debt Closure Doctrine language across relevant docs.</li>
-            </ul>
-          </div>
-
-          <div style={card}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Next steps (optional wiring)</div>
-            <ol style={{ paddingLeft: 18, color: "#475569", fontSize: 14, lineHeight: 1.6 }}>
-              <li>Swap the .txt exporter with a real <b>.docx</b> generator (npm <code>docx</code>).</li>
-              <li>POST the form to your API (Zapier / n8n / Make / Cloudflare Worker) and render a Documint template.</li>
-              <li>Gate this behind an <b>Agent Login</b> and log each generation for audits.</li>
-              <li>Add <b>state-specific</b> toggles (e.g., Florida vs. Texas evidence quirks).</li>
-            </ol>
+              Copy
+            </button>
+            <button
+              onClick={() => {
+                const blob = new Blob([generatedText], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "CredSmash_Doc.txt";
+                a.click();
+              }}
+              style={{ padding: "8px 12px", backgroundColor: "#444", color: "#fff", border: "none", cursor: "pointer" }}
+            >
+              Download .txt
+            </button>
           </div>
         </div>
-      </main>
-
-      <footer style={{ borderTop: "1px solid #e2e8f0", background: "white", marginTop: 16 }}>
-        <div style={{ ...container, padding: "12px 16px", fontSize: 12, color: "#64748b" }}>
-          © {new Date().getFullYear()} CredSmash. Educational use only. Not legal advice.
-        </div>
-      </footer>
+      </div>
     </div>
   );
 }
